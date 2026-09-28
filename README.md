@@ -76,3 +76,7 @@ Browser tests cover edge and label movement, persistent positions, source edits,
 - `src/export.ts`: browser-only SVG, PNG, JPG, and PDF downloads.
 
 Mermaid is a substantial renderer and diagram implementations are split into lazy-loaded chunks. Vite may report large chunks for the core renderer and certain diagram types.
+
+## License
+
+Licensed under the [Zero-Clause BSD (0BSD) license](LICENSE). Third-party dependencies retain their respective licenses.
