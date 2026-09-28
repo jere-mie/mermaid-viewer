@@ -436,12 +436,14 @@ function App() {
         x: g.vx + dx / view.scale,
         y: g.vy + dy / view.scale,
       };
-      layout.current.apply();
+      layout.current.apply(false);
     } else setView((v) => ({ ...v, x: g.vx + dx, y: g.vy + dy }));
   }
   function pointerUp() {
-    if (gesture.current?.entity && layout.current)
+    if (gesture.current?.entity && layout.current) {
+      layout.current.apply();
       update({ positions: { ...layout.current.positions } });
+    }
     gesture.current = null;
   }
   function add(

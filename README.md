@@ -28,7 +28,7 @@ Open the URL printed by Vite (normally `http://127.0.0.1:5173`).
 - The Copy button beside Download copies Mermaid code, SVG source as text, or a high-resolution PNG image with the current layout and theme. Native SVG, JPG, and PDF clipboard options are enabled only when the browser reports support. When PDF clipboard is unavailable, use Download. Clipboard access requires HTTPS or localhost and browser permission. Mermaid code can still be copied when its syntax is invalid.
 - Diagram, example, copy, and export menus close when you click outside, move focus away, or press Escape.
 
-All Mermaid diagram types can render. Entity rearrangement is implemented for ER, flowchart, and class diagrams; other types offer viewing, pan, zoom, fullscreen, and export. Subgraph containers are not independently draggable, and manual moves do not resize those containers or perform obstacle-avoiding edge routing. Mermaid source describes connections; the custom layout is stored separately and is not encoded into that source.
+All Mermaid diagram types can render. Entity rearrangement is implemented for ER, flowchart, and class diagrams; other types offer viewing, pan, zoom, fullscreen, and export. After a drag or keyboard move, connections are rerouted around fixed entity bounds with right-angle bends, separate attachment points, and collision-aware label placement. Routes are recreated on reload and included in downloads and clipboard images. Reset layout restores Mermaid's original arrangement and paths. Overlapping entities or crowded diagrams can still cause crossings; if no clear route exists, the connection retains its stretched path. Subgraph containers are not independently draggable and do not resize with manual moves. Mermaid source describes connections; custom entity positions are stored separately and are not encoded into that source.
 
 The app bundles its fonts and Mermaid runtime. There are no analytics or runtime services, and diagram content is not uploaded. Clearing browser site data clears saved diagrams. A storage failure is reported in the UI and offers a JSON backup download. Mermaid runs with its strict security setting.
 
@@ -71,7 +71,8 @@ Browser tests cover edge and label movement, persistent positions, source edits,
 ## Implementation
 
 - `src/main.tsx`: workspace, rendering, persistence, controls, and pointer interaction.
-- `src/layout.ts`: stable entity identity and SVG layout adaptation. It samples original edge geometry and interpolates endpoint displacements in the SVG coordinate system, preserving markers and updating labels. Resetting positions restores the original Mermaid paths.
+- `src/layout.ts`: stable entity identity, SVG layout adaptation, attachment points, and routing integration. Dragging uses fast interpolation; releasing triggers routing without moving entities.
+- `src/routing.ts`: browser-only orthogonal path routing around entity bounds and label placement that penalizes overlaps and line crossings.
 - `src/style.css`: responsive workspace styling.
 - `src/export.ts`: browser-only SVG, PNG, JPG, and PDF downloads.
 

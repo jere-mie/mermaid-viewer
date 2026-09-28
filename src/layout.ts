@@ -1,3 +1,5 @@
+import { routeConnection, placeLabel, type Box, type Side } from "./routing";
+
 export type Point = { x: number; y: number };
 export type Positions = Record<string, Point>;
 type Node = {
@@ -6,6 +8,7 @@ type Node = {
   transform: string;
   box: DOMRect;
   inverse: DOMMatrix;
+  outline?: Point[];
 };
 type Edge = {
   element: SVGPathElement;
@@ -19,11 +22,13 @@ type Edge = {
     transform: string;
     inverse: DOMMatrix;
     t: number;
+    box: Box;
+    terminal?: "start" | "end";
   }[];
 };
 
-// Keep Mermaid's shapes, markers, and labels. Deform each original edge by the
-// displacement of its two endpoints, so relationship notation stays attached.
+// Keep Mermaid's shapes and markers. During dragging, deform the original paths;
+// on release, route around the fixed entities and place labels in clear space.
 export function createLayout(svg: SVGSVGElement, positions: Positions) {
   positions = Object.assign(Object.create(null), positions);
   const matrix = (el: SVGGraphicsElement) =>
@@ -52,7 +57,17 @@ export function createLayout(svg: SVGSVGElement, positions: Positions) {
         new DOMPoint(box.x, box.y).matrixTransform(m),
         new DOMPoint(box.x + box.width, box.y + box.height).matrixTransform(m),
       ];
+      const polygon = element.querySelector<SVGPolygonElement>("polygon");
+      const outline = polygon
+        ? Array.from({ length: polygon.points.numberOfItems }, (_, i) => {
+            const p = polygon.points
+              .getItem(i)
+              .matrixTransform(matrix(polygon));
+            return { x: p.x, y: p.y };
+          })
+        : undefined;
       return {
+        outline,
         id,
         element,
         transform: element.getAttribute("transform") || "",
@@ -127,6 +142,14 @@ export function createLayout(svg: SVGSVGElement, positions: Positions) {
       )
         index = i;
     });
+    const bbox = element.getBBox();
+    const corner = new DOMPoint(bbox.x, bbox.y).matrixTransform(
+      matrix(element),
+    );
+    const opposite = new DOMPoint(
+      bbox.x + bbox.width,
+      bbox.y + bbox.height,
+    ).matrixTransform(matrix(element));
     return {
       element,
       transform: element.getAttribute("transform") || "",
@@ -134,6 +157,13 @@ export function createLayout(svg: SVGSVGElement, positions: Positions) {
         element.parentElement as unknown as SVGGraphicsElement,
       ).inverse(),
       t: index / (points.length - 1),
+      box: {
+        x: corner.x,
+        y: corner.y,
+        width: opposite.x - corner.x,
+        height: opposite.y - corner.y,
+      },
+      terminal: undefined as "start" | "end" | undefined,
     };
   }
   // Mermaid versions without data-id use the same edge/label ordering.
@@ -155,9 +185,166 @@ export function createLayout(svg: SVGSVGElement, positions: Positions) {
       if (!edge) return;
       const info = labelInfo(element, edge.points);
       info.t = info.t < 0.5 ? 0 : 1;
+      info.terminal = info.t === 0 ? "start" : "end";
       edge.labels.push(info);
     });
-  function apply() {
+  function reroute() {
+    const boxes = new Map(
+      nodes.map((n) => {
+        const p = positions[n.id] || { x: 0, y: 0 };
+        return [
+          n,
+          {
+            x: n.box.x + p.x,
+            y: n.box.y + p.y,
+            width: n.box.width,
+            height: n.box.height,
+          },
+        ] as const;
+      }),
+    );
+    const requests = edges
+      .filter((e) => e.start && e.end)
+      .map((edge) => {
+        const a = boxes.get(edge.start!)!,
+          b = boxes.get(edge.end!)!;
+        const dx = b.x + b.width / 2 - a.x - a.width / 2,
+          dy = b.y + b.height / 2 - a.y - a.height / 2;
+        let source: Side, target: Side;
+        if (edge.start === edge.end) {
+          source = "right";
+          target = "bottom";
+        } else if (
+          Math.abs(dx) / (a.width + b.width) >
+          Math.abs(dy) / (a.height + b.height)
+        ) {
+          source = dx >= 0 ? "right" : "left";
+          target = dx >= 0 ? "left" : "right";
+        } else {
+          source = dy >= 0 ? "bottom" : "top";
+          target = dy >= 0 ? "top" : "bottom";
+        }
+        return { edge, source, target };
+      });
+    // Allocate separate attachment points when several edges share an entity side.
+    const slots = new Map<string, { edge: Edge; end: "source" | "target" }[]>();
+    requests.forEach((r) => {
+      for (const end of ["source", "target"] as const) {
+        const node = end === "source" ? r.edge.start! : r.edge.end!;
+        const key = `${node.id}:${r[end]}`;
+        slots.set(key, [...(slots.get(key) || []), { edge: r.edge, end }]);
+      }
+    });
+    const port = (
+      edge: Edge,
+      node: Node,
+      side: Side,
+      end: "source" | "target",
+    ) => {
+      const b = boxes.get(node)!,
+        list = slots.get(`${node.id}:${side}`)!;
+      const fraction =
+        0.25 +
+        (0.5 * (list.findIndex((s) => s.edge === edge && s.end === end) + 1)) /
+          (list.length + 1);
+      let x =
+        side === "left"
+          ? b.x
+          : side === "right"
+            ? b.x + b.width
+            : b.x + b.width * fraction;
+      let y =
+        side === "top"
+          ? b.y
+          : side === "bottom"
+            ? b.y + b.height
+            : b.y + b.height * fraction;
+      // Round and polygon flowchart nodes need a port on their actual outline.
+      if (node.outline || node.element.querySelector("circle, ellipse")) {
+        const cx = b.x + b.width / 2,
+          cy = b.y + b.height / 2;
+        const dx = (x - cx) / (b.width / 2),
+          dy = (y - cy) / (b.height / 2);
+        if (node.outline) {
+          const shift = positions[node.id] || { x: 0, y: 0 };
+          const ray = { x: x - cx, y: y - cy };
+          for (let i = 0; i < node.outline.length; i++) {
+            const p = node.outline[i],
+              q = node.outline[(i + 1) % node.outline.length];
+            const sx = q.x - p.x,
+              sy = q.y - p.y,
+              denominator = ray.x * sy - ray.y * sx;
+            if (Math.abs(denominator) < 0.00001) continue;
+            const px = p.x + shift.x - cx,
+              py = p.y + shift.y - cy;
+            const t = (px * sy - py * sx) / denominator,
+              u = (px * ray.y - py * ray.x) / denominator;
+            if (t >= 0 && u >= 0 && u <= 1) {
+              x = cx + ray.x * t;
+              y = cy + ray.y * t;
+              break;
+            }
+          }
+        } else {
+          const divisor = Math.hypot(dx, dy);
+          x = cx + (x - cx) / divisor;
+          y = cy + (y - cy) / divisor;
+        }
+      }
+      return { x, y };
+    };
+    const paths: Point[][] = [];
+    const routed = new Map<Edge, Point[]>();
+    requests.forEach(({ edge, source, target }) => {
+      const start = port(edge, edge.start!, source, "source"),
+        end = port(edge, edge.end!, target, "target");
+      const path = routeConnection(
+        start,
+        end,
+        source,
+        target,
+        [...boxes.values()],
+        paths,
+      );
+      if (!path) return; // Overlapping entities can have no clear route; retain the live path.
+      paths.push(path);
+      routed.set(edge, path);
+      edge.element.setAttribute(
+        "d",
+        path
+          .map((p, i) => {
+            const q = new DOMPoint(p.x, p.y).matrixTransform(edge.inverse);
+            return `${i ? "L" : "M"}${q.x},${q.y}`;
+          })
+          .join(" "),
+      );
+    });
+    const occupied: Box[] = [...boxes.values()];
+    // Endpoint cardinalities get first choice, followed by relationship names.
+    const labels = [...routed.entries()]
+      .flatMap(([edge, path]) => edge.labels.map((label) => ({ label, path })))
+      .sort((a, b) => Number(!!b.label.terminal) - Number(!!a.label.terminal));
+    labels.forEach(({ label, path }) => {
+      const box = placeLabel(
+        path,
+        label.box.width,
+        label.box.height,
+        occupied,
+        paths,
+        label.terminal,
+      );
+      occupied.push(box);
+      const p = vector(
+        { x: box.x - label.box.x, y: box.y - label.box.y },
+        label.inverse,
+      );
+      label.element.setAttribute(
+        "transform",
+        `translate(${p.x},${p.y}) ${label.transform}`,
+      );
+    });
+  }
+  function apply(route = true) {
     const zero = { x: 0, y: 0 };
     nodes.forEach((n) => {
       const p = vector(positions[n.id] || zero, n.inverse);
@@ -195,6 +382,8 @@ export function createLayout(svg: SVGSVGElement, positions: Positions) {
         );
       });
     });
+    if (route && nodes.some((n) => positions[n.id]?.x || positions[n.id]?.y))
+      reroute();
   }
   apply();
   return { nodes, apply, positions };
