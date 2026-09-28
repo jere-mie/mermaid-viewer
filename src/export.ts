@@ -80,12 +80,11 @@ export function saveBlob(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export async function exportDiagram(
+export async function createDiagramBlob(
   svg: SVGSVGElement,
-  name: string,
   format: ExportFormat,
   background: string,
-) {
+): Promise<Blob> {
   const box = svg.getBBox();
   const width = Math.ceil(box.width + 48),
     height = Math.ceil(box.height + 48);
@@ -106,13 +105,8 @@ export async function exportDiagram(
   rect.setAttribute("fill", background);
   copy.prepend(rect);
   const source = new XMLSerializer().serializeToString(copy);
-  const filename = (name.trim() || "diagram").replace(
-    /[<>:"/\\|?*\x00-\x1F]/g,
-    "-",
-  );
   if (format === "svg") {
-    saveBlob(new Blob([source], { type: "image/svg+xml" }), `${filename}.svg`);
-    return;
+    return new Blob([source], { type: "image/svg+xml" });
   }
   if (format === "pdf") {
     const { jsPDF } = await import("jspdf");
@@ -169,8 +163,7 @@ export async function exportDiagram(
       compress: true,
     });
     await pdf.svg(copy, { x: 0, y: 0, width: w, height: h });
-    saveBlob(pdf.output("blob"), `${filename}.pdf`);
-    return;
+    return pdf.output("blob");
   }
   // Use a data URL so SVG foreignObject labels stay origin-clean in Chromium.
   const image = new Image();
@@ -201,5 +194,21 @@ export async function exportDiagram(
       1,
     ),
   );
-  saveBlob(blob, `${filename}.${format}`);
+  return blob;
+}
+
+export async function exportDiagram(
+  svg: SVGSVGElement,
+  name: string,
+  format: ExportFormat,
+  background: string,
+) {
+  const filename = (name.trim() || "diagram").replace(
+    /[<>:"/\\|?*\x00-\x1F]/g,
+    "-",
+  );
+  saveBlob(
+    await createDiagramBlob(svg, format, background),
+    `${filename}.${format}`,
+  );
 }

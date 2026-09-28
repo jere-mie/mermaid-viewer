@@ -133,7 +133,8 @@ input:focus-visible,
   gap: 1px;
   padding-right: 4px;
 }
-.export-wrap {
+.export-wrap,
+.copy-wrap {
   position: relative;
 }
 
@@ -345,6 +346,18 @@ main {
   left: auto;
   right: 6px;
   min-width: 140px;
+}
+.dropdown.copy-menu {
+  position: fixed;
+  top: 42px;
+  left: auto;
+  right: 40px;
+  min-width: 210px;
+}
+.dropdown .copy-hint {
+  max-width: 210px;
+  margin: 6px 0;
+  line-height: 1.5;
 }
 .dropdown button span {
   flex: 1;

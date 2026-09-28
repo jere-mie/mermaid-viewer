@@ -6,6 +6,7 @@ import {
   ChevronDown,
   Code2,
   Download,
+  Copy,
   Expand,
   Maximize,
   Minus,
@@ -17,6 +18,11 @@ import {
   Sun,
 } from "lucide-react";
 import { createLayout, type Positions } from "./layout";
+import {
+  copyDiagram,
+  supportsClipboardFormat,
+  type CopyFormat,
+} from "./clipboard";
 import { exportDiagram, type ExportFormat } from "./export";
 import "./style.css";
 import "@fontsource/dm-sans/400.css";
@@ -215,6 +221,14 @@ function App() {
   const [menu, setMenu] = useState(false);
   const [sampleMenu, setSampleMenu] = useState(false);
   const [exportMenu, setExportMenu] = useState(false);
+  const [copyMenu, setCopyMenu] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const [copyStatus, setCopyStatus] = useState("");
+  useEffect(() => {
+    if (!copyStatus) return;
+    const timer = setTimeout(() => setCopyStatus(""), 2500);
+    return () => clearTimeout(timer);
+  }, [copyStatus]);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
   useEffect(() => {
@@ -223,12 +237,14 @@ function App() {
       if (!target.closest(".document-control")) setMenu(false);
       if (!target.closest(".sample-wrap")) setSampleMenu(false);
       if (!target.closest(".export-wrap")) setExportMenu(false);
+      if (!target.closest(".copy-wrap")) setCopyMenu(false);
     };
     const escape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setMenu(false);
         setSampleMenu(false);
         setExportMenu(false);
+        setCopyMenu(false);
       }
     };
     document.addEventListener("pointerdown", dismiss);
@@ -463,6 +479,32 @@ function App() {
       setExporting(false);
     }
   }
+  async function runCopy(format: CopyFormat) {
+    if (copying) return;
+    setCopyMenu(false);
+    setCopying(true);
+    setCopyStatus("");
+    setExportError("");
+    try {
+      await copyDiagram(
+        format,
+        doc.code,
+        surface.current?.querySelector("svg") ?? null,
+        dark ? "#181d1a" : "#ffffff",
+      );
+      setCopyStatus("Copied to clipboard");
+    } catch (error) {
+      setExportError(
+        error instanceof DOMException && error.name === "NotAllowedError"
+          ? "Clipboard access was denied. Allow clipboard access in your browser and try again."
+          : error instanceof Error
+            ? error.message
+            : "Copy failed. Please try again.",
+      );
+    } finally {
+      setCopying(false);
+    }
+  }
   function commitZoom(value: string) {
     const percent = Number(value.trim().replace(/%$/, ""));
     if (Number.isFinite(percent) && percent > 0)
@@ -667,6 +709,82 @@ function App() {
         >
           {dark ? <Sun size={16} /> : <Moon size={16} />}
         </button>
+        <div className="copy-wrap">
+          <button
+            title={copying ? "Copying..." : copyStatus || "Copy diagram"}
+            aria-label="Copy diagram"
+            aria-expanded={copyMenu}
+            onClick={() => setCopyMenu(!copyMenu)}
+            disabled={copying}
+          >
+            {copyStatus ? <Check size={16} /> : <Copy size={16} />}
+          </button>
+          {copyMenu && (
+            <div className="dropdown copy-menu">
+              <button onClick={() => runCopy("code")}>Copy Mermaid code</button>
+              <button
+                disabled={
+                  busy ||
+                  !!error ||
+                  !doc.code.trim() ||
+                  !supportsClipboardFormat("png")
+                }
+                onClick={() => runCopy("png")}
+              >
+                Copy PNG image
+              </button>
+              <button
+                disabled={
+                  busy ||
+                  !!error ||
+                  !doc.code.trim() ||
+                  !supportsClipboardFormat("svg-source")
+                }
+                onClick={() => runCopy("svg-source")}
+              >
+                Copy SVG source
+              </button>
+              {supportsClipboardFormat("svg") && (
+                <button
+                  disabled={busy || !!error || !doc.code.trim()}
+                  onClick={() => runCopy("svg")}
+                >
+                  Copy SVG image
+                </button>
+              )}
+              {supportsClipboardFormat("jpg") && (
+                <button
+                  disabled={busy || !!error || !doc.code.trim()}
+                  onClick={() => runCopy("jpg")}
+                >
+                  Copy JPG image
+                </button>
+              )}
+              <button
+                title={
+                  supportsClipboardFormat("pdf")
+                    ? "Copy vector PDF"
+                    : "PDF clipboard is not supported by this browser. Use Download instead."
+                }
+                disabled={
+                  busy ||
+                  !!error ||
+                  !doc.code.trim() ||
+                  !supportsClipboardFormat("pdf")
+                }
+                onClick={() => runCopy("pdf")}
+              >
+                Copy PDF
+              </button>
+              {!supportsClipboardFormat("pdf") && (
+                <p className="copy-hint">PDF is available through Download.</p>
+              )}
+            </div>
+          )}
+          <span className="sr-only" role="status">
+            {copying ? "Copying..." : copyStatus}
+          </span>
+        </div>
         <div className="export-wrap">
           <button
             title={exporting ? "Exporting..." : "Export diagram"}
