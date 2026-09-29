@@ -43,8 +43,8 @@ export function routeConnection(
   boxes: Box[],
   previous: Point[][],
 ): Point[] | null {
-  const pad = 18,
-    stub = 32;
+  const pad = 36,
+    stub = 52;
   const a = {
     x: start.x + directions[startSide].x * stub,
     y: start.y + directions[startSide].y * stub,
