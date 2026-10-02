@@ -16,7 +16,9 @@ import {
   Trash2,
   Moon,
   Sun,
+  Link,
 } from "lucide-react";
+import { createShareLink, readShareLink } from "./share";
 import { createLayout, type Positions } from "./layout";
 import {
   copyDiagram,
@@ -231,6 +233,66 @@ function App() {
   }, [copyStatus]);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
+  const [shareMenu, setShareMenu] = useState(false);
+  const [shareLink, setShareLink] = useState("");
+  const [shareError, setShareError] = useState("");
+  const [shareStatus, setShareStatus] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    setShareLink("");
+    setShareError("");
+    setShareStatus("");
+    if (shareMenu)
+      createShareLink(doc).then(
+        (link) => {
+          if (!cancelled) setShareLink(link);
+        },
+        (error) => {
+          if (!cancelled) setShareError(error.message);
+        },
+      );
+    return () => {
+      cancelled = true;
+    };
+  }, [shareMenu, doc]);
+  useEffect(() => {
+    let generation = 0;
+    const importLink = async () => {
+      const token = ++generation;
+      const hash = location.hash;
+      try {
+        const shared = await readShareLink(hash);
+        if (!shared || token !== generation) return;
+        const incoming = { ...shared, id: crypto.randomUUID() };
+        setWorkspace((w) => {
+          const existing = w.docs.find(
+            (d) =>
+              d.name === shared.name &&
+              d.code === shared.code &&
+              JSON.stringify(d.positions) === JSON.stringify(shared.positions),
+          );
+          return existing
+            ? { ...w, active: existing.id }
+            : { docs: [...w.docs, incoming], active: incoming.id };
+        });
+        // Consume the snapshot so refresh preserves subsequent local edits.
+        history.replaceState(null, "", location.pathname + location.search);
+      } catch (error) {
+        if (token === generation)
+          setExportError(
+            error instanceof Error
+              ? error.message
+              : "Unable to open share link.",
+          );
+      }
+    };
+    void importLink();
+    window.addEventListener("hashchange", importLink);
+    return () => {
+      generation++;
+      window.removeEventListener("hashchange", importLink);
+    };
+  }, []);
   useEffect(() => {
     const dismiss = (event: Event) => {
       const target = event.target as Element;
@@ -238,6 +300,7 @@ function App() {
       if (!target.closest(".sample-wrap")) setSampleMenu(false);
       if (!target.closest(".export-wrap")) setExportMenu(false);
       if (!target.closest(".copy-wrap")) setCopyMenu(false);
+      if (!target.closest(".share-wrap")) setShareMenu(false);
     };
     const escape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -245,6 +308,7 @@ function App() {
         setSampleMenu(false);
         setExportMenu(false);
         setCopyMenu(false);
+        setShareMenu(false);
       }
     };
     document.addEventListener("pointerdown", dismiss);
@@ -711,6 +775,56 @@ function App() {
         >
           {dark ? <Sun size={16} /> : <Moon size={16} />}
         </button>
+        <div className="share-wrap">
+          <button
+            title="Share diagram"
+            aria-label="Share diagram"
+            aria-expanded={shareMenu}
+            onClick={() => setShareMenu(!shareMenu)}
+          >
+            <Link size={16} />
+          </button>
+          {shareMenu && (
+            <div className="dropdown share-menu">
+              <p>
+                Share a snapshot of the code, name, and layout. Anyone with the
+                link can open and edit their own copy.
+              </p>
+              {shareError ? (
+                <p role="alert">{shareError}</p>
+              ) : (
+                <>
+                  <input
+                    aria-label="Share link"
+                    readOnly
+                    value={shareLink}
+                    placeholder="Creating link..."
+                    onFocus={(e) => e.currentTarget.select()}
+                  />
+                  <button
+                    disabled={!shareLink}
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(shareLink);
+                        setShareStatus("Link copied");
+                      } catch {
+                        setShareStatus("Select the link and copy it manually.");
+                      }
+                    }}
+                  >
+                    Copy link
+                  </button>
+                  <p role="status">
+                    {shareStatus ||
+                      (shareLink.length > 8000
+                        ? "Long link: some messaging apps may truncate it."
+                        : "Stored in the URL. No upload required.")}
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+        </div>
         <div className="copy-wrap">
           <button
             title={copying ? "Copying..." : copyStatus || "Copy diagram"}

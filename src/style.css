@@ -347,6 +347,26 @@ main {
   right: 6px;
   min-width: 140px;
 }
+.dropdown.share-menu {
+  position: fixed;
+  top: 42px;
+  left: auto;
+  right: 6px;
+  width: 320px;
+}
+.share-menu input {
+  width: 100%;
+  padding: 7px;
+  border: 1px solid #85917c;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+}
+.dropdown.share-menu p {
+  font-size: 12px;
+  line-height: 1.5;
+}
 .dropdown.copy-menu {
   position: fixed;
   top: 42px;
